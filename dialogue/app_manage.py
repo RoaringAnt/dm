@@ -46,6 +46,11 @@ def get_answer(query, module_num):
                 res['message'] = kb
                 res['status'] = 'ok'
                 return res
+            subway = requests.post('http://192.168.1.29:8765/predictions/crosswoz_nlu', {'data': query}).json()
+            res['answer'] = subway
+            res['intent'] = 'subway'
+            res['status'] = 'ok'
+            return res
             intent = requests.post('http://192.168.1.29:6787/intent/', json.dumps({'data': query})).json()[0]
             res['intent'] = label_map[intent]
             if intent == '0':
@@ -59,21 +64,27 @@ def get_answer(query, module_num):
             wether = requests.post(url='http://192.168.1.28:5005/webhooks/rest/webhook',
                                    data=json.dumps({"sender": "0001", "message": query})).json()
             if len(wether) == 2:
+                res['answer'] = wether[1]['text']
                 res['intent'] = 'whether'
-                res['query'] = query
-                res['message'] = wether[1]['text']
-                res['status'] = 'ok'
+                # res['status'] = 'ok'
+                res['tag'] = '智源'
+                res['score'] = 100
                 ind = module_state['restart']
                 return res
             else:
+                res['answer'] = wether[0]['text']
                 res['intent'] = 'whether'
-                res['query'] = query
-                res['message'] = wether[0]['text']
-                res['status'] = 'go on'
-                if res['message'] == '什么时候？':
+                # res['status'] = 'go on'
+                res['tag'] = '智源'
+                if res['answer'] == '什么时候？':
+                    res['score'] = 100
                     ind = module_state['weather_going']['时间']
-                else:
+                elif res['answer'] == '在哪里？':
+                    res['score'] = 100
                     ind = module_state['weather_going']['地点']
+                else:
+                    res['score'] = 30 # 非天气领域
+                    ind = module_state['restart']
                 return res
     except Exception as e:
         print(e)
@@ -82,49 +93,47 @@ def output_answer(data):
     if not ind:
         if '天气' not in query:
             module_num = module_map['其他']
-            return Response(json.dumps(get_answer(data,module_num), ensure_ascii=False), mimetype='application/json; charset=utf-8')
+            answer = get_answer(data, module_num)
         else:
             module_num = module_map['天气']
-            return Response(json.dumps(get_answer(data,module_num), ensure_ascii=False),
-                                mimetype='application/json; charset=utf-8')
+            answer = get_answer(data, module_num)
     else:
         pos = get_pos(data)
         if ind == 1 and 't' in pos:
             if 'n' in pos or 'a' in pos:
                 module_num = module_map['其他']
-                return Response(json.dumps(get_answer(data, module_num), ensure_ascii=False),
-                                mimetype='application/json; charset=utf-8')
+                answer = get_answer(data, module_num)
             else:
                 module_num = module_map['天气']
-                return Response(json.dumps(get_answer(data, module_num), ensure_ascii=False),
-                                mimetype='application/json; charset=utf-8')
+                answer = get_answer(data, module_num)
         elif ind == 2 and 'ns' in pos:
             if 'n' in pos or 'a' in pos:
                 module_num = module_map['其他']
-                return Response(json.dumps(get_answer(data, module_num), ensure_ascii=False),
-                                mimetype='application/json; charset=utf-8')
+                answer = get_answer(data, module_num)
             else:
                 module_num = module_map['天气']
-                return Response(json.dumps(get_answer(data, module_num), ensure_ascii=False),
-                                mimetype='application/json; charset=utf-8')
+                answer = get_answer(data, module_num)
         else:
             module_num = module_map['其他']
-            return Response(json.dumps(get_answer(data, module_num), ensure_ascii=False),
-                            mimetype='application/json; charset=utf-8')
+            answer = get_answer(data, module_num)
+
+    return answer
 
 @app.route('/dia/', methods=['POST', 'GET'])
 def model():
     input_json = request.get_json(force=True)
     data = input_json['data']
     answer = output_answer(data)
-    return answer
+    return Response(json.dumps(answer, ensure_ascii=False),
+                    mimetype='application/json; charset=utf-8')
 
 @app.route("/api")
 def model_1():
     data = request.args.get('text', '')
     print(data)
     answer = output_answer(data)
-    return answer
+    return Response(json.dumps(answer, ensure_ascii=False),
+                    mimetype='application/json; charset=utf-8')
 
 if __name__ == '__main__':
     app.run(host ='0.0.0.0',port=6788,threaded=True)
